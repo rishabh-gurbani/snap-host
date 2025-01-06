@@ -1,47 +1,42 @@
 # Dependencies
-node_modules
 **/node_modules
 npm-debug.log*
 
 # Environment files
-.env
-.env.local
-.env.*.local
 **/.env
 **/.env.local
 **/.env.*.local
 
 # Build outputs
-dist
-build
-out
 **/dist
+**/build
+**/out
 **/*.zip
 
 # IDE specific files
-.idea
-.vscode
-*.swp
-*.swo
-.DS_Store
+**/.idea
+**/.vscode
+**/*.swp
+**/*.swo
+**/.DS_Store
 
 # Logs
-logs
-*.log
+**/logs
+**/*.log
 
 # Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
+**/pids
+**/*.pid
+**/*.seed
+**/*.pid.lock
 
 # Coverage directory
-coverage
+**/coverage
 
 # Temporary files
-.temp
-.tmp
-.cache
+**/.temp
+**/.tmp
+**/.cache
 
 # System Files
 .DS_Store
