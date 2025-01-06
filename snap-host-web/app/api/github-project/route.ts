@@ -79,7 +79,10 @@ export async function POST(request: NextRequest) {
                                         name: "PROJECT_ID",
                                         value: project.subDomain!,
                                     },
-                                    { name: "DEPLOYMENT_ID", value: deployment.id },
+                                    {
+                                        name: "DEPLOYMENT_ID",
+                                        value: deployment.id,
+                                    },
                                     // AWS credentials
                                     {
                                         name: "AWS_ACCESS_KEY_ID",
@@ -87,24 +90,16 @@ export async function POST(request: NextRequest) {
                                     },
                                     {
                                         name: "AWS_SECRET_ACCESS_KEY",
-                                        value: process.env.AWS_SECRET_ACCESS_KEY,
+                                        value: process.env
+                                            .AWS_SECRET_ACCESS_KEY,
                                     },
                                     {
                                         name: "AWS_REGION",
                                         value: process.env.AWS_REGION,
                                     },
-                                    // Kafka credentials
                                     {
-                                        name: "KAFKA_BROKER",
-                                        value: process.env.KAFKA_BROKER,
-                                    },
-                                    {
-                                        name: "KAFKA_USERNAME",
-                                        value: process.env.KAFKA_USERNAME,
-                                    },
-                                    {
-                                        name: "KAFKA_PASSWORD",
-                                        value: process.env.KAFKA_PASSWORD,
+                                        name: "SQS_QUEUE_URL",
+                                        value: process.env.SQS_QUEUE_URL,
                                     },
                                 ],
                             },
@@ -114,10 +109,13 @@ export async function POST(request: NextRequest) {
 
                 await ecsClient.send(command);
                 console.log("Deployment started:", deployment.id);
-                return new Response(JSON.stringify({ deploymentId: deployment.id }), { 
-                    status: 200,
-                    headers: { 'Content-Type': 'application/json' }
-                });
+                return new Response(
+                    JSON.stringify({ deploymentId: deployment.id }),
+                    {
+                        status: 200,
+                        headers: { "Content-Type": "application/json" },
+                    }
+                );
             } catch (error) {
                 console.error("Deployment failed:", error);
                 return new Response("Deployment failed", { status: 500 });

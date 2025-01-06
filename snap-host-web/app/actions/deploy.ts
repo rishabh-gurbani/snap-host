@@ -7,6 +7,7 @@ import { ecsClient, CONFIG } from "@/lib/aws-client";
 import { z } from "zod";
 import { getServerSession } from "@/lib/auth-utils";
 import { eq, sql } from "drizzle-orm";
+import Docker from "dockerode";
 
 const deploymentSchema = z.object({
     projectId: z.string().uuid("Invalid project ID"),
@@ -73,66 +74,104 @@ export async function createDeployment(projectId: string, comments?: string) {
 
         const deployment = deploymentQuery[0];
 
-        const command = new RunTaskCommand({
-            cluster: CONFIG.CLUSTER,
-            taskDefinition: CONFIG.TASK,
-            count: 1,
-            launchType: "FARGATE",
-            networkConfiguration: {
-                awsvpcConfiguration: {
-                    subnets: [
-                        "subnet-0a7061cd0b42c9e20",
-                        "subnet-09ca23335f0d3b776",
-                        "subnet-08d202097ed2a7c10",
-                    ],
-                    securityGroups: ["sg-04bc809e564080619"],
-                    assignPublicIp: "ENABLED",
-                },
-            },
-            overrides: {
-                containerOverrides: [
-                    {
-                        name: "builder-image",
-                        environment: [
-                            {
-                                name: "GIT_REPOSITORY_URL",
-                                value: project.gitURL!,
-                            },
-                            { name: "PROJECT_ID", value: project.subDomain! },
-                            { name: "DEPLOYMENT_ID", value: deployment.id },
-                            // AWS credentials
-                            {
-                                name: "AWS_ACCESS_KEY_ID",
-                                value: process.env.AWS_ACCESS_KEY_ID,
-                            },
-                            {
-                                name: "AWS_SECRET_ACCESS_KEY",
-                                value: process.env.AWS_SECRET_ACCESS_KEY,
-                            },
-                            {
-                                name: "AWS_REGION",
-                                value: process.env.AWS_REGION,
-                            },
-                            // Kafka credentials
-                            {
-                                name: "KAFKA_BROKER",
-                                value: process.env.KAFKA_BROKER,
-                            },
-                            {
-                                name: "KAFKA_USERNAME",
-                                value: process.env.KAFKA_USERNAME,
-                            },
-                            {
-                                name: "KAFKA_PASSWORD",
-                                value: process.env.KAFKA_PASSWORD,
-                            },
+        const environment = process.env.NEXT_PUBLIC_CURRENT_DOMAIN!.startsWith(
+            "localhost"
+        )
+            ? "dev"
+            : "prod";
+        if (environment == "prod") {
+            const command = new RunTaskCommand({
+                cluster: CONFIG.CLUSTER,
+                taskDefinition: CONFIG.TASK,
+                count: 1,
+                launchType: "FARGATE",
+                networkConfiguration: {
+                    awsvpcConfiguration: {
+                        subnets: [
+                            "subnet-0a7061cd0b42c9e20",
+                            "subnet-09ca23335f0d3b776",
+                            "subnet-08d202097ed2a7c10",
                         ],
+                        securityGroups: ["sg-04bc809e564080619"],
+                        assignPublicIp: "ENABLED",
                     },
-                ],
-            },
-        });
+                },
+                overrides: {
+                    containerOverrides: [
+                        {
+                            name: "builder-image",
+                            environment: [
+                                {
+                                    name: "GIT_REPOSITORY_URL",
+                                    value: project.gitURL!,
+                                },
+                                {
+                                    name: "PROJECT_ID",
+                                    value: project.subDomain!,
+                                },
+                                { name: "DEPLOYMENT_ID", value: deployment.id },
+                                // AWS credentials
+                                {
+                                    name: "AWS_ACCESS_KEY_ID",
+                                    value: process.env.AWS_ACCESS_KEY_ID,
+                                },
+                                {
+                                    name: "AWS_SECRET_ACCESS_KEY",
+                                    value: process.env.AWS_SECRET_ACCESS_KEY,
+                                },
+                                {
+                                    name: "AWS_REGION",
+                                    value: process.env.AWS_REGION,
+                                },
+                                {
+                                    name: "SQS_QUEUE_URL",
+                                    value: process.env.SQS_QUEUE_URL,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            });
 
-        await ecsClient.send(command);
+            await ecsClient.send(command);
+        } else {
+            const docker = new Docker({
+                socketPath: "/var/run/docker.sock",
+            });
+            console.log("docker");
+            try {
+                console.log(await docker.listImages());
+
+                const container = await docker.createContainer({
+                    Image: "snap-host-builder-image",
+                    name: `deployment-${deployment.id}`,
+                    Env: [
+                        `GIT_REPOSITORY_URL=${project.gitURL}`,
+                        `PROJECT_ID=${project.subDomain}`,
+                        `DEPLOYMENT_ID=${deployment.id}`,
+                        `AWS_ACCESS_KEY_ID=${process.env.AWS_ACCESS_KEY_ID}`,
+                        `AWS_SECRET_ACCESS_KEY=${process.env.AWS_SECRET_ACCESS_KEY}`,
+                        `AWS_REGION=${process.env.AWS_REGION}`,
+                        `SQS_QUEUE_URL=${process.env.SQS_QUEUE_URL}`,
+                    ],
+                    HostConfig: {
+                        // AutoRemove: true,
+                        NetworkMode: "host",
+                    },
+                });
+                console.log(container.id);
+                await container.start();
+                console.log("Container started successfully");
+            } catch (error: unknown) {
+                const errorMessage =
+                    error instanceof Error
+                        ? error.message
+                        : "Unknown Docker error occurred";
+                throw new Error(
+                    `Docker container creation failed: ${errorMessage}`
+                );
+            }
+        }
 
         await db
             .update(projects)
@@ -147,6 +186,7 @@ export async function createDeployment(projectId: string, comments?: string) {
             },
         };
     } catch (error) {
+        console.log(error);
         return {
             success: false as const,
             error:

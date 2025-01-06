@@ -1,73 +1,88 @@
-const { exec, execSync } = require("child_process");
-const path = require("path");
-const fs = require("fs");
-const {
+import { exec, execSync } from "child_process";
+import * as path from "path";
+import * as fs from "fs";
+import {
     S3Client,
     PutObjectCommand,
     ListObjectsV2Command,
     DeleteObjectsCommand,
-} = require("@aws-sdk/client-s3");
-const mime = require("mime-types");
-const { Kafka } = require("kafkajs");
+} from "@aws-sdk/client-s3";
+import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
+import * as mime from "mime-types";
 
-const s3Client = new S3Client({
-    region: process.env.AWS_REGION,
-    credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-    },
-});
-
-const PROJECT_ID = process.env.PROJECT_ID;
-const DEPLOYMENT_ID = process.env.DEPLOYMENT_ID;
-const BUILD_DIR = "/home/build/output";
-
-const kafka = new Kafka({
-    clientId: `docker-build-server-${PROJECT_ID}-${DEPLOYMENT_ID}`,
-    brokers: [process.env.KAFKA_BROKER],
-    ssl: {
-        ca: [fs.readFileSync(path.join(__dirname, "ca.pem"), "utf-8")],
-    },
-    sasl: {
-        username: process.env.KAFKA_USERNAME,
-        password: process.env.KAFKA_PASSWORD,
-        mechanism: "plain",
-    },
-});
-
-const producer = kafka.producer();
-
-async function publishMessage(type, payload) {
-    await producer.send({
-        topic: "container-logs",
-        messages: [
-            {
-                key: type,
-                value: JSON.stringify({
-                    PROJECT_ID,
-                    DEPLOYMENT_ID,
-                    type,
-                    ...payload,
-                }),
-            },
-        ],
-    });
+interface MessagePayload {
+    log?: string;
+    status?: string;
+    [key: string]: any;
 }
 
-async function publishLog(log) {
+const PROJECT_ID = process.env.PROJECT_ID!;
+const DEPLOYMENT_ID = process.env.DEPLOYMENT_ID!;
+const BUILD_DIR = "/home/build/output";
+const QUEUE_URL = process.env.SQS_QUEUE_URL!;
+const MESSAGE_GROUP_ID = "build-updates";
+
+let sqsClient: SQSClient;
+
+async function publishMessage(
+    type: string,
+    payload: MessagePayload
+): Promise<void> {
+    const timestamp = Date.now();
+    const deduplicationId = `${DEPLOYMENT_ID}-${type}-${timestamp}`;
+    const MessageBody = JSON.stringify({
+        timestamp,
+        PROJECT_ID,
+        DEPLOYMENT_ID,
+        type,
+        ...payload,
+    });
+    console.log(MessageBody);
+
+    const command = new SendMessageCommand({
+        QueueUrl: QUEUE_URL,
+        MessageBody,
+        MessageAttributes: {
+            MessageType: {
+                DataType: "String",
+                StringValue: type,
+            },
+        },
+        MessageGroupId: MESSAGE_GROUP_ID,
+        MessageDeduplicationId: deduplicationId,
+    });
+
+    await sqsClient.send(command);
+}
+
+async function publishLog(log: string): Promise<void> {
     await publishMessage("log", { log });
 }
 
-async function updateDeploymentStatus(status) {
+async function updateDeploymentStatus(status: string): Promise<void> {
     await publishMessage("status", { status });
 }
 
-async function init() {
-    await producer.connect();
-
+async function init(): Promise<void> {
     console.log("Executing script.js");
-    await publishLog("Build Started...");
     try {
+        const s3Client = new S3Client({
+            region: process.env.AWS_REGION as string,
+            credentials: {
+                accessKeyId: process.env.AWS_ACCESS_KEY_ID as string,
+                secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY as string,
+            },
+        });
+
+        sqsClient = new SQSClient({
+            region: process.env.AWS_REGION as string,
+            credentials: {
+                accessKeyId: process.env.AWS_ACCESS_KEY_ID as string,
+                secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY as string,
+            },
+        });
+
+        await publishLog("Build Started...");
         execSync(`rm -rf ${BUILD_DIR}/*`);
         execSync(`git clone ${process.env.GIT_REPOSITORY_URL} ${BUILD_DIR}`);
 
@@ -76,8 +91,8 @@ async function init() {
         const buildP = exec(
             `cd ${BUILD_DIR} && HOME=/home/build npm install && npm run build`,
             {
-                uid: parseInt(execSync("id -u builduser")),
-                gid: parseInt(execSync("id -g builduser")),
+                uid: parseInt(execSync("id -u builduser").toString(), 10),
+                gid: parseInt(execSync("id -g builduser").toString(), 10),
                 env: {
                     PATH: process.env.PATH,
                     HOME: "/home/build",
@@ -87,12 +102,12 @@ async function init() {
             }
         );
 
-        buildP.stdout.on("data", async (data) => {
+        buildP.stdout?.on("data", async (data: Buffer | string) => {
             console.log(data.toString());
             await publishLog(data.toString());
         });
 
-        buildP.stderr.on("data", async (err) => {
+        buildP.stderr?.on("data", async (err: Buffer | string) => {
             console.error(err.toString());
             await publishLog(`error: ${err.toString()}`);
         });
@@ -123,17 +138,24 @@ async function init() {
                 });
 
                 for (const filePath of distFolderContents) {
-                    const fullPath = path.join(distFolderPath, filePath);
+                    const fullPath = path.join(
+                        distFolderPath,
+                        filePath as string
+                    );
                     if (fs.lstatSync(fullPath).isDirectory()) continue;
 
                     console.log(`Uploading ${filePath}`);
                     await publishLog(`Uploading ${filePath}`);
 
+                    const mimeType =
+                        mime.lookup(filePath as string) ||
+                        "application/octet-stream";
+
                     const command = new PutObjectCommand({
                         Bucket: "snap-host",
                         Key: `__output__/${PROJECT_ID}/${filePath}`,
                         Body: fs.createReadStream(fullPath),
-                        ContentType: mime.lookup(filePath),
+                        ContentType: mimeType,
                     });
 
                     await s3Client.send(command);
@@ -160,4 +182,4 @@ async function init() {
     }
 }
 
-init();
+init().catch(console.error);

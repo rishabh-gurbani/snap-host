@@ -19,13 +19,14 @@ RUN useradd -m -d /home/build builduser && \
 
 WORKDIR /home/app
 
-COPY package*.json .
+COPY package*.json ./
+COPY tsconfig.json ./
 RUN npm install
-COPY script.js .
-COPY ca.pem ca.pem
+
+COPY script.ts ./
 
 # Set proper permissions
 RUN chown -R root:root /home/app && \
     chmod 700 /home/app
 
-ENTRYPOINT ["node", "script.js"]
+ENTRYPOINT ["npx", "tsx", "script.ts"]

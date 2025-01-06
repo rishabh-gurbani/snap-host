@@ -2,12 +2,6 @@
 
 import db from "@/db";
 import { getServerSession } from "@/lib/auth-utils";
-import { createClient } from "@clickhouse/client";
-
-const clickhouseClient = createClient({
-    url: process.env.CLICKHOUSE_URL,
-    database: process.env.CLICKHOUSE_DATABASE,
-});
 
 export async function getDeploymentLogs(deploymentId: string) {
     try {
@@ -18,7 +12,7 @@ export async function getDeploymentLogs(deploymentId: string) {
             where: (deployments, { eq }) => eq(deployments.id, deploymentId),
             with: {
                 project: {
-                    // @ts-expect-error drizzle 
+                    // @ts-expect-error drizzle
                     where: (project, { eq }) =>
                         eq(project.userId, session.user.id),
                 },
@@ -29,22 +23,20 @@ export async function getDeploymentLogs(deploymentId: string) {
             throw new Error("Deployment not found or unauthorized");
         }
 
-        const logs = await clickhouseClient.query({
-            query: `SELECT event_id, deployment_id, log, timestamp 
-                   FROM log_events 
-                   WHERE deployment_id = {deployment_id:String} 
-                   ORDER BY timestamp`,
-            query_params: {
-                deployment_id: deploymentId,
-            },
-            format: "JSONEachRow",
+        const deploymentLogs = await db.query.logs.findMany({
+            where: (logs, { eq }) => eq(logs.deploymentId, deploymentId),
+            orderBy: (logs, { asc }) => asc(logs.createdAt),
         });
-
-        const rawLogs = await logs.json();
 
         return {
             success: true as const,
-            data: rawLogs,
+            data: deploymentLogs.map((log) => ({
+                event_id: log.id,
+                deployment_id: log.deploymentId,
+                log: log.message,
+                timestamp: log.createdAt,
+                type: log.type,
+            })),
         };
     } catch (error) {
         return {

@@ -1,0 +1,24 @@
+{
+    "name": "aws-lambda",
+    "version": "1.0.0",
+    "description": "",
+    "main": "index.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "build": "tsc",
+        "zip": "zip -r lambda.zip . -i node_modules\\* dist\\*",
+        "deploy": "npm run build && npm run zip && aws lambda update-function-code --function-name ProcessSQSRecord --zip-file fileb://./lambda.zip"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "@neondatabase/serverless": "^0.10.4",
+        "@types/aws-lambda": "^8.10.147",
+        "drizzle-orm": "^0.38.3"
+    },
+    "devDependencies": {
+        "@types/node": "^22.10.5",
+        "drizzle-kit": "^0.30.1"
+    }
+}
