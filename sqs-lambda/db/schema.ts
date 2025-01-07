@@ -9,6 +9,8 @@ import {
     varchar,
     integer,
     index,
+    foreignKey,
+    AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 export const user = pgTable("user", {
@@ -69,27 +71,38 @@ export const deploymentStatusEnum = pgEnum("deployment_status", [
     "FAIL",
 ]);
 
-export const projects = pgTable("projects", {
-    id: uuid("id").defaultRandom().primaryKey(),
-    name: varchar("name", { length: 255 }),
-    gitURL: text("git_url"),
-    userId: text("user_id").references(() => user.id),
-    subDomain: varchar("subdomain", { length: 255 }),
-    customDomain: varchar("custom_domain", { length: 255 }),
-    githubWebhookId: integer("github_webhook_id"),
-    createdAt: timestamp("created_at").defaultNow(),
-    updatedAt: timestamp("updated_at").defaultNow(),
-});
+export const projects = pgTable(
+    "projects",
+    {
+        id: uuid("id").defaultRandom().primaryKey(),
+        name: varchar("name", { length: 255 }),
+        gitURL: text("git_url"),
+        userId: text("user_id").references(() => user.id),
+        subDomain: varchar("subdomain", { length: 255 }),
+        customDomain: varchar("custom_domain", { length: 255 }),
+        githubWebhookId: integer("github_webhook_id"),
+        createdAt: timestamp("created_at").defaultNow(),
+        updatedAt: timestamp("updated_at").defaultNow(),
+        currentDeploymentId: uuid("currentDeploymentId"),
+    },
+    (projects) => ({
+        currentDeploymentIdFK: foreignKey({
+            columns: [projects.currentDeploymentId],
+            foreignColumns: [deployments.id],
+        }),
+    })
+);
 
 export type Project = InferSelectModel<typeof projects>;
 
 export const deployments = pgTable("deployments", {
     id: uuid("id").defaultRandom().primaryKey(),
-    projectId: uuid("project_id").references(() => projects.id),
+    projectId: uuid("project_id").references((): AnyPgColumn => projects.id),
     status: deploymentStatusEnum("status").default("NOT_STARTED"),
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
     comments: text(),
+    logsArchived: boolean("logs_archived").default(false),
 });
 
 export const logs = pgTable(

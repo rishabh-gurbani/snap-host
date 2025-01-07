@@ -14,6 +14,7 @@ import {
 import { formatDistanceToNow } from "date-fns";
 import { DeleteProjectButton } from "./DeleteProjectButton";
 import { DeploymentStatus, Status } from "@/components/deployment-status";
+import { RedeployButton } from "./RedeployButton";
 
 export default async function ProjectPage({
     searchParams,
@@ -146,6 +147,9 @@ export default async function ProjectPage({
 
                 {activeTab === "deployments" && (
                     <div className="mt-6 space-y-4">
+                        <div className="flex justify-end mb-4">
+                            <RedeployButton projectId={id} />
+                        </div>
                         {deployments.map((deployment) => (
                             <Link
                                 key={deployment.id}

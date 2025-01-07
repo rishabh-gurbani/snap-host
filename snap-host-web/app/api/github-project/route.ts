@@ -1,9 +1,9 @@
 import db from "@/db";
-import { deployments } from "@/db/schema";
-import { CONFIG, ecsClient } from "@/lib/aws-client";
-import { RunTaskCommand } from "@aws-sdk/client-ecs";
+import { deployments, projects } from "@/db/schema";
 import { Webhooks } from "@octokit/webhooks";
 import { type NextRequest } from "next/server";
+import { startDeployment, sendArchiveMessage } from "@/lib/deployment-utils";
+import { eq, sql } from "drizzle-orm";
 
 const webhooks = new Webhooks({
     secret: process.env.GITHUB_WEBHOOK_SECRET!,
@@ -50,65 +50,22 @@ export async function POST(request: NextRequest) {
 
                 const deployment = deploymentQuery[0];
 
-                const command = new RunTaskCommand({
-                    cluster: CONFIG.CLUSTER,
-                    taskDefinition: CONFIG.TASK,
-                    count: 1,
-                    launchType: "FARGATE",
-                    networkConfiguration: {
-                        awsvpcConfiguration: {
-                            subnets: [
-                                "subnet-0a7061cd0b42c9e20",
-                                "subnet-09ca23335f0d3b776",
-                                "subnet-08d202097ed2a7c10",
-                            ],
-                            securityGroups: ["sg-04bc809e564080619"],
-                            assignPublicIp: "ENABLED",
-                        },
-                    },
-                    overrides: {
-                        containerOverrides: [
-                            {
-                                name: "builder-image",
-                                environment: [
-                                    {
-                                        name: "GIT_REPOSITORY_URL",
-                                        value: project.gitURL!,
-                                    },
-                                    {
-                                        name: "PROJECT_ID",
-                                        value: project.subDomain!,
-                                    },
-                                    {
-                                        name: "DEPLOYMENT_ID",
-                                        value: deployment.id,
-                                    },
-                                    // AWS credentials
-                                    {
-                                        name: "AWS_ACCESS_KEY_ID",
-                                        value: process.env.AWS_ACCESS_KEY_ID,
-                                    },
-                                    {
-                                        name: "AWS_SECRET_ACCESS_KEY",
-                                        value: process.env
-                                            .AWS_SECRET_ACCESS_KEY,
-                                    },
-                                    {
-                                        name: "AWS_REGION",
-                                        value: process.env.AWS_REGION,
-                                    },
-                                    {
-                                        name: "SQS_QUEUE_URL",
-                                        value: process.env.SQS_QUEUE_URL,
-                                    },
-                                ],
-                            },
-                        ],
-                    },
-                });
+                // Update the project's currentDeploymentId
+                await db
+                    .update(projects)
+                    .set({
+                        updatedAt: sql`NOW()`,
+                        currentDeploymentId: deployment.id,
+                    })
+                    .where(eq(projects.id, project.id));
 
-                await ecsClient.send(command);
-                console.log("Deployment started:", deployment.id);
+                // Archive previous deployment if exists
+                if (project.currentDeploymentId) {
+                    await sendArchiveMessage(project.id, project.currentDeploymentId);
+                }
+
+                await startDeployment(project, deployment.id);
+
                 return new Response(
                     JSON.stringify({ deploymentId: deployment.id }),
                     {
