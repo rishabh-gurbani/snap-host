@@ -23,10 +23,10 @@ COPY package*.json ./
 COPY tsconfig.json ./
 RUN npm install
 
-COPY script.ts ./
+COPY index.ts ./
 
 # Set proper permissions
 RUN chown -R root:root /home/app && \
     chmod 700 /home/app
 
-ENTRYPOINT ["npx", "tsx", "script.ts"]
+ENTRYPOINT ["npx", "tsx", "index.ts"]

@@ -39,6 +39,8 @@ async function publishMessage(
     });
     console.log(MessageBody);
 
+    console.log(QUEUE_URL);
+
     const command = new SendMessageCommand({
         QueueUrl: QUEUE_URL,
         MessageBody,

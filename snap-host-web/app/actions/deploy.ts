@@ -80,6 +80,7 @@ export async function createDeployment(projectId: string, comments?: string) {
             ? "dev"
             : "prod";
         if (environment == "prod") {
+            console.log(process.env.SQS_QUEUE_URL);
             const command = new RunTaskCommand({
                 cluster: CONFIG.CLUSTER,
                 taskDefinition: CONFIG.TASK,
