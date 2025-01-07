@@ -11,7 +11,10 @@ const MESSAGE_GROUPS = {
     DEPLOYMENT_ARCHIVE: "deployment-archive",
 };
 
-export async function sendArchiveMessage(projectID: string, deploymentId: string) {
+export async function sendArchiveMessage(
+    projectID: string,
+    deploymentId: string
+) {
     const timestamp = Date.now();
     const deduplicationId = `${deploymentId}-archive-${timestamp}`;
 
@@ -32,7 +35,11 @@ export async function sendArchiveMessage(projectID: string, deploymentId: string
 }
 
 export async function startDeployment(project: Project, deploymentId: string) {
-    const environment = process.env.NEXT_PUBLIC_CURRENT_DOMAIN!.startsWith("localhost") ? "dev" : "prod";
+    const environment = process.env.NEXT_PUBLIC_CURRENT_DOMAIN!.startsWith(
+        "localhost"
+    )
+        ? "dev"
+        : "prod";
 
     if (environment === "prod") {
         const command = new RunTaskCommand({
@@ -104,6 +111,7 @@ export async function startDeployment(project: Project, deploymentId: string) {
             ],
             HostConfig: {
                 NetworkMode: "host",
+                CapAdd: ["NET_ADMIN"],
             },
         });
         await container.start();

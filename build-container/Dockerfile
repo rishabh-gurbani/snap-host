@@ -2,7 +2,7 @@ FROM ubuntu:focal
 
 # Combine apt-get commands to minimize layers and cleanup afterwards to reduce image size
 RUN apt-get update && \
-    apt-get install -y curl git && \
+    apt-get install -y curl git iptables iputils-ping iproute2 && \
     curl -sL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get upgrade -y && \
     apt-get install -y nodejs && \
@@ -19,14 +19,19 @@ RUN useradd -m -d /home/build builduser && \
 
 WORKDIR /home/app
 
+# Copy configuration files first to leverage Docker cache
 COPY package*.json ./
 COPY tsconfig.json ./
 RUN npm install
 
-COPY index.ts ./
+# Copy all TypeScript files and scripts
+COPY *.ts ./
+COPY setup-builduser-iptables.sh /usr/local/bin/
 
-# Set proper permissions
+# Set proper permissions for all files
 RUN chown -R root:root /home/app && \
-    chmod 700 /home/app
+    chmod 700 /home/app && \
+    chmod +x /usr/local/bin/setup-builduser-iptables.sh
 
-ENTRYPOINT ["npx", "tsx", "index.ts"]
+# Use the iptables script as entrypoint
+ENTRYPOINT ["/usr/local/bin/setup-builduser-iptables.sh", "npx", "tsx", "index.ts"]
