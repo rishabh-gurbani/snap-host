@@ -17,9 +17,10 @@ import Link from "next/link";
 
 interface Log {
     event_id: string;
-    deployment_id: string;
+    deployment_id: string | null;
     log: string;
-    timestamp: string;
+    timestamp: Date | null;
+    type: string;
 }
 
 interface DeploymentViewProps {
@@ -53,6 +54,7 @@ export default function DeploymentView({ deploymentId }: DeploymentViewProps) {
             ]);
 
             if (logsResponse.success && statusResponse.success) {
+                // Convert the timestamp to string when displaying
                 setLogs(logsResponse.data as Log[]);
                 setStatus(
                     statusResponse.data.status as
@@ -234,10 +236,7 @@ export default function DeploymentView({ deploymentId }: DeploymentViewProps) {
                                             className="pb-1"
                                         >
                                             <span className="text-neutral-500">
-                                                {new Date(
-                                                    log.timestamp
-                                                ).toLocaleTimeString()}
-                                                :{" "}
+                                                {log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : ''}: 
                                             </span>
                                             <span className="text-neutral-300">
                                                 {log.log}
