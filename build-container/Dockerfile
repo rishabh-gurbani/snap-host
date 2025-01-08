@@ -2,7 +2,7 @@ FROM ubuntu:focal
 
 # Combine apt-get commands to minimize layers and cleanup afterwards to reduce image size
 RUN apt-get update && \
-    apt-get install -y curl git iptables iputils-ping iproute2 && \
+    apt-get install -y curl git && \
     curl -sL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get upgrade -y && \
     apt-get install -y nodejs && \
@@ -26,12 +26,10 @@ RUN npm install
 
 # Copy all TypeScript files and scripts
 COPY *.ts ./
-COPY setup-builduser-iptables.sh /usr/local/bin/
 
 # Set proper permissions for all files
 RUN chown -R root:root /home/app && \
-    chmod 700 /home/app && \
-    chmod +x /usr/local/bin/setup-builduser-iptables.sh
+    chmod 700 /home/app
 
-# Use the iptables script as entrypoint
-ENTRYPOINT ["/usr/local/bin/setup-builduser-iptables.sh", "npx", "tsx", "index.ts"]
+# Change entrypoint to directly run the script
+ENTRYPOINT ["npx", "tsx", "index.ts"]

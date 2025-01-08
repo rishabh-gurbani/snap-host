@@ -1,15 +1,10 @@
 import { exec, execSync } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
-import {
-    S3Client,
-    PutObjectCommand,
-    ListObjectsV2Command,
-    DeleteObjectsCommand,
-} from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import * as mime from "mime-types";
-import { validatePackageJson, ALLOWED_MIME_TYPES } from './security-utils';
+import { validatePackageJson, ALLOWED_MIME_TYPES } from "./security-utils";
 
 interface MessagePayload {
     log?: string;
@@ -22,8 +17,6 @@ const DEPLOYMENT_ID = process.env.DEPLOYMENT_ID!;
 const BUILD_DIR = "/home/build/output";
 const QUEUE_URL = process.env.SQS_QUEUE_URL!;
 const MESSAGE_GROUP_ID = "build-updates";
-
-// Remove ALLOWED_MIME_TYPES constant as it's now imported
 
 let sqsClient: SQSClient;
 
@@ -40,9 +33,6 @@ async function publishMessage(
         type,
         ...payload,
     });
-    console.log(MessageBody);
-
-    console.log(QUEUE_URL);
 
     const command = new SendMessageCommand({
         QueueUrl: QUEUE_URL,
@@ -91,22 +81,25 @@ async function init(): Promise<void> {
         execSync(`rm -rf ${BUILD_DIR}/*`);
         execSync(`git clone ${process.env.GIT_REPOSITORY_URL} ${BUILD_DIR}`);
 
-        // Add security validation
         try {
             validatePackageJson(BUILD_DIR);
             await publishLog("Security validation passed");
         } catch (error) {
-            await publishLog(`Security validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            await publishLog(
+                `Security validation failed: ${
+                    error instanceof Error ? error.message : "Unknown error"
+                }`
+            );
             await updateDeploymentStatus("FAIL");
             process.exit(1);
         }
 
         execSync(`chown -R builduser:builduser ${BUILD_DIR}`);
 
-        const BUILD_TIMEOUT = 110000; // 110 seconds in milliseconds
-        
+        const BUILD_TIMEOUT = 110000;
+
         const buildP = exec(
-            `cd ${BUILD_DIR} && HOME=/home/build npm install && npm run build`,
+            `cd ${BUILD_DIR} && HOME=/home/build npm install --no-audit --no-fund --ignore-scripts --production && npm run build`,
             {
                 uid: parseInt(execSync("id -u builduser").toString(), 10),
                 gid: parseInt(execSync("id -g builduser").toString(), 10),
@@ -115,15 +108,19 @@ async function init(): Promise<void> {
                     HOME: "/home/build",
                     npm_config_cache: "/home/build/.npm",
                     NODE_ENV: process.env.NODE_ENV,
+                    npm_config_ignore_scripts: "true",
+                    npm_config_registry: "https://registry.npmjs.org/",
+                    npm_config_strict_ssl: "true",
+                    npm_config_no_proxy: "",
+                    npm_config_maxsockets: "1",
                 },
                 timeout: BUILD_TIMEOUT,
-                killSignal: 'SIGTERM'
+                killSignal: "SIGTERM",
             }
         );
 
-        // Add timeout handler
         const timeoutId = setTimeout(async () => {
-            buildP.kill('SIGTERM');
+            buildP.kill("SIGTERM");
             await publishLog("Build timed out after 110 seconds");
             await updateDeploymentStatus("FAIL");
             process.exit(1);
@@ -140,7 +137,7 @@ async function init(): Promise<void> {
         });
 
         buildP.on("close", async (code) => {
-            clearTimeout(timeoutId);  // Clear timeout if process completes
+            clearTimeout(timeoutId); 
             console.log("Build completed with code:", code);
             await publishLog(`Build Completed with code: ${code}`);
 
@@ -153,7 +150,6 @@ async function init(): Promise<void> {
 
             const distFolderPath = path.join(BUILD_DIR, "dist");
 
-            // Verify dist folder exists
             if (!fs.existsSync(distFolderPath)) {
                 console.error("Build failed - dist folder not found");
                 await updateDeploymentStatus("FAIL");
@@ -172,11 +168,14 @@ async function init(): Promise<void> {
                     );
                     if (fs.lstatSync(fullPath).isDirectory()) continue;
 
-                    const mimeType = mime.lookup(filePath as string) || 'application/octet-stream';
-                    
-                    // Skip files with unallowed MIME types
+                    const mimeType =
+                        mime.lookup(filePath as string) ||
+                        "application/octet-stream";
+
                     if (!ALLOWED_MIME_TYPES.has(mimeType)) {
-                        await publishLog(`Skipping ${filePath} - unsupported file type: ${mimeType}`);
+                        await publishLog(
+                            `Skipping ${filePath} - unsupported file type: ${mimeType}`
+                        );
                         continue;
                     }
 
